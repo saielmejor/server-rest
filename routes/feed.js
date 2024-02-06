@@ -18,4 +18,5 @@ router.post(
   feedController.createPost
 );
 
+router.get('/post/:postId',feedController.getPost ) // path for single post 
 module.exports = router;

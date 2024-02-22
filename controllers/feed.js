@@ -4,7 +4,7 @@ const { validationResult } = require("express-validator");
 const User = require("../models/users");
 const Post = require("../models/post");
 
-const io=require('../socket')
+const io = require("../socket");
 exports.getPosts = async (req, res, next) => {
   const currentPage = req.query.page || 1;
   const perPage = 2;
@@ -12,10 +12,10 @@ exports.getPosts = async (req, res, next) => {
     const totalItems = await Post.find().countDocuments();
 
     const posts = await Post.find()
-     
+      .populate("creator") 
+      .sort({createAt:-1}) 
       .skip((currentPage - 1) * perPage)
       .limit(perPage);
-      
 
     res.status(200).json({
       message: "Fetched posts successfully",
@@ -62,8 +62,11 @@ exports.createPost = async (req, res, next) => {
     user.posts.push(post); // push the post
     await user.save();
 
-    //use io 
-    io.getIO().emit('posts',{ action:'create',post:post})
+    //use io
+    io.getIO().emit('posts', {
+      action: 'create',
+      post: { ...post._doc, creator: { _id: req.userId, name: user.name } }
+    });
     res.status(201).json({
       message: "Post created successfully!",
       post: post,
@@ -121,13 +124,13 @@ exports.updatePost = async (req, res, next) => {
   }
   try {
     //update the database
-    const post = await Post.findById(postId);
+    const post = await Post.findById(postId).populate('creator');
     if (!post) {
       const error = new Error("Could not find post");
       error.statusCode = 404;
       throw error;
     }
-    if (post.creator.toString() !== req.userId) {
+    if (post.creator._id.toString() !== req.userId) {
       const error = new Error("Not authorized");
       error.statusCode = 403;
       throw error;
@@ -139,7 +142,7 @@ exports.updatePost = async (req, res, next) => {
     post.imageUrl = imageUrl;
     post.content = content;
     const result = await post.save();
-
+    io.getIO().emit('posts',{action:'update',post:result})
     res.status(200).json({ message: "Post updated!", post: result });
   } catch (err) {
     // look for total ITems
@@ -160,22 +163,22 @@ exports.deletePost = async (req, res, next) => {
       error.statusCode = 404;
       throw error;
     }
-    console.log(post.creator.toString())
-    console.log(req.userId)
+    console.log(post.creator.toString());
+    console.log(req.userId);
     if (post.creator.toString() !== req.userId) {
       const error = new Error("Not authorized");
       error.statusCode = 403;
-      throw error; 
+      throw error;
     }
     clearImage(post.imageUrl);
-     await Post.findByIdAndDelete(postId);
+    await Post.findByIdAndDelete(postId);
 
-    const user=await Post.findById(req.userId);
+    const user = await Post.findById(req.userId);
 
-     user.posts.pull(postId);
+    user.posts.pull(postId);
     //clears the relation between post and user
     await user.save();
-
+    io.getIO().emit('posts',{action:'delete',post:postId}) //delete post across all user
     res.status(200).json({ message: "Deleted post!", post: result });
   } catch (err) {
     // look for total ITems
